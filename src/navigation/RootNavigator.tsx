@@ -1,23 +1,24 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import WelcomeScreen from "../screens/Welcome";
-import SwipeScreen from "../screens/Swipe";
-import FavoritesScreen from "../screens/Favorites";
+import TabNavigator from "./TabNavigator";
 
 export type RootStackParamList = {
   Welcome: undefined;
-  Swipe: undefined;
-  Favorites: undefined;
+  MainTabs: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const RootNavigator = () => {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
-      <Stack.Screen name="Swipe" component={SwipeScreen} />
-      <Stack.Screen name="Favorites" component={FavoritesScreen} />
+      <Stack.Screen name="MainTabs" component={TabNavigator} />
     </Stack.Navigator>
   );
 };

@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { StyleSheet, Dimensions, View, Text } from "react-native";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
   runOnJS,
   interpolate,
   Extrapolation,
@@ -14,7 +15,16 @@ import PokemonCard from "./PokemonCard";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-const SWIPE_OUT_DURATION = 250;
+
+// Optimized spring config for smooth, natural feel
+const SPRING_CONFIG = {
+  damping: 20,
+  stiffness: 150,
+  mass: 0.8,
+  overshootClamping: false,
+  restDisplacementThreshold: 0.01,
+  restSpeedThreshold: 0.01,
+};
 
 interface Props {
   pokemon: Pokemon;
@@ -29,39 +39,51 @@ const SwipeableCard: React.FC<Props> = ({
 }) => {
   const translateX = useSharedValue(0);
 
-  const handleSwipeComplete = (direction: "left" | "right") => {
-    if (direction === "left") {
-      onSwipeLeft();
-    } else {
-      onSwipeRight();
-    }
-  };
+  // Memoize callbacks to prevent recreation on every render
+  const handleSwipeLeft = useCallback(() => {
+    onSwipeLeft();
+  }, [onSwipeLeft]);
 
+  const handleSwipeRight = useCallback(() => {
+    onSwipeRight();
+  }, [onSwipeRight]);
+
+  // Only activate for horizontal movements (not vertical)
   const panGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-10, 10])
     .onUpdate((event) => {
+      // Apply translation directly without any smoothing
       translateX.value = event.translationX;
     })
     .onEnd((event) => {
       if (event.translationX < -SWIPE_THRESHOLD) {
-        translateX.value = withSpring(
-          -SCREEN_WIDTH,
-          { damping: 15 },
-          () => {
-            runOnJS(handleSwipeComplete)("left");
-            translateX.value = 0;
+        // Swipe left - animate off screen
+        translateX.value = withTiming(
+          -SCREEN_WIDTH * 1.5,
+          { duration: 250 },
+          (finished) => {
+            if (finished) {
+              runOnJS(handleSwipeLeft)();
+              translateX.value = -SCREEN_WIDTH;
+            }
           }
         );
       } else if (event.translationX > SWIPE_THRESHOLD) {
-        translateX.value = withSpring(
-          SCREEN_WIDTH,
-          { damping: 15 },
-          () => {
-            runOnJS(handleSwipeComplete)("right");
-            translateX.value = 0;
+        // Swipe right - animate off screen
+        translateX.value = withTiming(
+          SCREEN_WIDTH * 1.5,
+          { duration: 250 },
+          (finished) => {
+            if (finished) {
+              runOnJS(handleSwipeRight)();
+              translateX.value = SCREEN_WIDTH;
+            }
           }
         );
       } else {
-        translateX.value = withSpring(0);
+        // Snap back to center with spring
+        translateX.value = withSpring(0, SPRING_CONFIG);
       }
     });
 
@@ -78,6 +100,25 @@ const SwipeableCard: React.FC<Props> = ({
         { translateX: translateX.value },
         { rotate: `${rotate}deg` },
       ],
+    };
+  });
+
+  // Optimized background overlay - use opacity interpolation
+  const backgroundStyle = useAnimatedStyle(() => {
+    const absX = Math.abs(translateX.value);
+    const opacity = interpolate(
+      absX,
+      [0, SWIPE_THRESHOLD],
+      [0, 0.3],
+      Extrapolation.CLAMP
+    );
+    
+    const isLeft = translateX.value < 0;
+    
+    return {
+      backgroundColor: isLeft 
+        ? `rgba(255, 68, 68, ${opacity})` 
+        : `rgba(68, 255, 68, ${opacity})`,
     };
   });
 
@@ -101,8 +142,37 @@ const SwipeableCard: React.FC<Props> = ({
     return { opacity };
   });
 
+  const handleLike = useCallback(() => {
+    translateX.value = withTiming(
+      SCREEN_WIDTH * 1.5,
+      { duration: 250 },
+      (finished) => {
+        if (finished) {
+          runOnJS(handleSwipeRight)();
+          translateX.value = SCREEN_WIDTH;
+        }
+      }
+    );
+  }, [translateX, handleSwipeRight]);
+
+  const handleDislike = useCallback(() => {
+    translateX.value = withTiming(
+      -SCREEN_WIDTH * 1.5,
+      { duration: 250 },
+      (finished) => {
+        if (finished) {
+          runOnJS(handleSwipeLeft)();
+          translateX.value = -SCREEN_WIDTH;
+        }
+      }
+    );
+  }, [translateX, handleSwipeLeft]);
+
   return (
     <View style={styles.container}>
+      {/* Background color overlay */}
+      <Animated.View style={[styles.backgroundOverlay, backgroundStyle]} />
+      
       <GestureDetector gesture={panGesture}>
         <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
           <Animated.View style={[styles.overlay, styles.leftOverlay, leftOverlayStyle]}>
@@ -113,26 +183,8 @@ const SwipeableCard: React.FC<Props> = ({
           </Animated.View>
           <PokemonCard
             pokemon={pokemon}
-            onLike={() => {
-              translateX.value = withSpring(
-                SCREEN_WIDTH,
-                { damping: 15 },
-                () => {
-                  runOnJS(handleSwipeComplete)("right");
-                  translateX.value = 0;
-                }
-              );
-            }}
-            onDislike={() => {
-              translateX.value = withSpring(
-                -SCREEN_WIDTH,
-                { damping: 15 },
-                () => {
-                  runOnJS(handleSwipeComplete)("left");
-                  translateX.value = 0;
-                }
-              );
-            }}
+            onLike={handleLike}
+            onDislike={handleDislike}
           />
         </Animated.View>
       </GestureDetector>
@@ -143,6 +195,12 @@ const SwipeableCard: React.FC<Props> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    position: "relative",
+  },
+  backgroundOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+    margin: 16,
   },
   cardContainer: {
     flex: 1,
